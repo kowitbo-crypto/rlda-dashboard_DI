@@ -73,24 +73,21 @@ def convert_df_to_excel(df):
     return processed_data
 
 # ==========================================
-# 3. Load Data & Sidebar Filters (DI to DI)
+# 3. Load Data & Sidebar Filters
 # ==========================================
 df_all = load_google_sheet(CSV_URL)
 
 if df_all is not None:
     st.sidebar.header("🎛️ ตัวกรองข้อมูล (Filters)")
     
-    # ดึงรายการ DI_No ทั้งหมด
     di_list_all = df_all['DI_No'].tolist()
     
-    # สร้าง Dropdown สำหรับเลือกช่วง DI (Start - End)
     col_di1, col_di2 = st.sidebar.columns(2)
     with col_di1:
         start_di = st.selectbox("เริ่มต้นที่ DI:", di_list_all, index=0)
     with col_di2:
         end_di = st.selectbox("สิ้นสุดที่ DI:", di_list_all, index=len(di_list_all)-1)
     
-    # กรองข้อมูลตามช่วง DI ที่เลือก
     if start_di > end_di:
         st.sidebar.error("⚠️ DI เริ่มต้นต้องน้อยกว่าหรือเท่ากับ DI สิ้นสุด")
         df = df_all[(df_all['DI_No'] >= end_di) & (df_all['DI_No'] <= start_di)].copy()
@@ -215,11 +212,15 @@ if df_all is not None:
             fig.update_layout(title="Profile (Elevation vs Chainage)", xaxis_title="Chainage (m)", yaxis_title="Elevation (m.msl)", hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
             
+            # ---------------------------------------------------------
+            # [แก้ไข] Export เป็น HTML แทน PNG (เพราะ Streamlit Cloud ไม่รองรับ Kaleido)
+            # ---------------------------------------------------------
+            html_bytes = fig.to_html(include_plotlyjs='cdn').encode('utf-8')
             st.download_button(
-                label="📥 ดาวน์โหลดกราฟ Profile (PNG)",
-                data=fig.to_image(format="png"),
-                file_name="Longitudinal_Profile.png",
-                mime="image/png"
+                label="📥 ดาวน์โหลดกราฟ Profile (HTML)",
+                data=html_bytes,
+                file_name="Longitudinal_Profile.html",
+                mime="text/html"
             )
 
     # --------------------------------------------------
@@ -239,7 +240,6 @@ if df_all is not None:
         cols_output_show = [c for c in output_cols if c in df.columns]
         st.dataframe(df[cols_output_show].style.format(precision=3), use_container_width=True)
 
-        # Export ปุ่ม Download
         excel_data = convert_df_to_excel(df)
         st.download_button(
             label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (Excel)",
