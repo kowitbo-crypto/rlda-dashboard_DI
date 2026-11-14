@@ -6,6 +6,7 @@ from streamlit_folium import st_folium
 import plotly.graph_objects as go
 from pyproj import Transformer
 import io
+import csv
 
 # ==========================================
 # 1. Page Configuration
@@ -21,7 +22,7 @@ st.markdown("""
 st.markdown('<div class="main-header">RLDA v11.2.4 | Interactive Dashboard (UTM 48N)</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. Helper Functions
+# 2. Helper Functions (ปลอดภัย 100% บน Cloud)
 # ==========================================
 SHEET_ID = "1wkOIwvJGbsWz3MccBgFMIng9NqJ5v9HQ5yw_bfv1eMY"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
@@ -65,12 +66,18 @@ def format_km(km_text):
     except:
         return str(km_text)
 
-def convert_df_to_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Data')
-    processed_data = output.getvalue()
-    return processed_data
+# ---------------------------------------------------------
+# ฟังก์ชัน Export แบบใหม่ (ใช้ CSV มาตรฐาน ไม่ต้องใช้ xlsxwriter)
+# ---------------------------------------------------------
+def convert_df_to_csv(df):
+    """แปลง DataFrame เป็น CSV Bytes โดยใช้ io และ csv มาตรฐาน"""
+    output = io.StringIO()
+    # ใช้ csv.writer เพื่อป้องกันปัญหาภาษาไทยเพี้ยน
+    writer = csv.writer(output)
+    writer.writerow(df.columns)
+    for _, row in df.iterrows():
+        writer.writerow(row.values)
+    return output.getvalue().encode('utf-8-sig') # utf-8-sig สำหรับ Excel เปิดอ่านภาษาไทยได้
 
 # ==========================================
 # 3. Load Data & Sidebar Filters
@@ -212,9 +219,7 @@ if df_all is not None:
             fig.update_layout(title="Profile (Elevation vs Chainage)", xaxis_title="Chainage (m)", yaxis_title="Elevation (m.msl)", hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
             
-            # ---------------------------------------------------------
-            # [แก้ไข] Export เป็น HTML แทน PNG (เพราะ Streamlit Cloud ไม่รองรับ Kaleido)
-            # ---------------------------------------------------------
+            # Export กราฟเป็น HTML
             html_bytes = fig.to_html(include_plotlyjs='cdn').encode('utf-8')
             st.download_button(
                 label="📥 ดาวน์โหลดกราฟ Profile (HTML)",
@@ -240,12 +245,15 @@ if df_all is not None:
         cols_output_show = [c for c in output_cols if c in df.columns]
         st.dataframe(df[cols_output_show].style.format(precision=3), use_container_width=True)
 
-        excel_data = convert_df_to_excel(df)
+        # ---------------------------------------------------------
+        # [แก้ไข] Export ตารางเป็น CSV แบบ Native (ไม่ใช้ xlsxwriter)
+        # ---------------------------------------------------------
+        csv_data = convert_df_to_csv(df)
         st.download_button(
-            label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (Excel)",
-            data=excel_data,
-            file_name="RLDA_Data_Export.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)",
+            data=csv_data,
+            file_name="RLDA_Data_Export.csv",
+            mime="text/csv"
         )
 
 else:
