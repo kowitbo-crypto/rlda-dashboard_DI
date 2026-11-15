@@ -73,15 +73,17 @@ def convert_df_to_csv(df):
         writer.writerow(row.values)
     return output.getvalue().encode('utf-8-sig')
 
-# ฟังก์ชันจัดรูปแบบตารางแบบปลอดภัย
+# ---------------------------------------------------------
+# [แก้ไข] ฟังก์ชัน safe_format ใหม่ (ตรวจสอบชนิดข้อมูลก่อนจัดรูปแบบ)
+# ---------------------------------------------------------
 def safe_format(df, format_str="{:.3f}", na_rep="-"):
-    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อน"""
+    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อนจัดรูปแบบ"""
     styled_df = df.copy()
     for col in styled_df.columns:
-        if styled_df[col].dtype == 'object':
-            styled_df[col] = styled_df[col].apply(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) and pd.notna(x) else (na_rep if pd.isna(x) else str(x)))
-        else:
-            styled_df[col] = styled_df[col].apply(lambda x: format_str.format(x) if pd.notna(x) else na_rep)
+        styled_df[col] = styled_df[col].apply(
+            lambda x: format_str.format(x) if isinstance(x, (int, float, np.number)) and pd.notna(x) 
+            else (na_rep if pd.isna(x) else str(x))
+        )
     return styled_df
 
 # ==========================================
@@ -220,7 +222,6 @@ if df_all is not None:
                     "Froude No.": selected_row.get('Froude', '-')
                 }
                 df_udrain = pd.DataFrame(list(udrain_data.items()), columns=["Parameter", "Value"])
-                # ใช้ safe_format เพื่อไม่ให้ error
                 st.dataframe(safe_format(df_udrain).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
 
                 # 2. หมวด Manhole
