@@ -16,27 +16,12 @@ st.set_page_config(page_title="RLDA Dashboard Pro", layout="wide", initial_sideb
 st.markdown("""
     <style>
     .main-header { font-size: 24px; font-weight: bold; color: #0077cc; margin-bottom: 20px; }
-    /* สไตล์สำหรับกล่องแจ้งเตือน ให้พื้นหลังโปร่งแสง และตัวอักษรสีขาว */
-    .range-info {
-        background-color: rgba(0, 119, 204, 0.2); /* สีฟ้าโปร่งแสง */
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        font-size: 14px;
-        border-left: 4px solid #0077cc;
-        color: inherit; /* ใช้สีตาม Theme (ขาวใน Dark, ดำใน Light) */
-    }
-    /* บังคับให้ตาราง Data Inspector มีพื้นหลังสีขาวและตัวอักษรสีดำ เพื่อให้อ่านง่าย */
-    .stDataFrame {
-        background-color: white;
-        padding: 10px;
-        border-radius: 5px;
-        color: black;
-    }
+    .range-info { background-color: rgba(0, 119, 204, 0.2); padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; border-left: 4px solid #0077cc; color: inherit; }
+    .stDataFrame { background-color: white; padding: 10px; border-radius: 5px; color: black; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">RLDA v11.2.4 | Interactive Dashboard (UTM 48N)</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">RLDA v11.2.4 | Interactive Dashboard & Cross-Section Viewer</div>', unsafe_allow_html=True)
 
 # ==========================================
 # 2. Helper Functions
@@ -50,11 +35,13 @@ def load_google_sheet(url):
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip()
         
+        # แปลงข้อมูลให้เป็นตัวเลข
         num_cols = ['DI_No', 'KM_m', 'Northing', 'Easting', 'RailLevel', 
                     'DrainInvertLevel', 'LevelTopUdrain', 'ManholeLevelBottom',
                     'UpstreamInvertHU', 'DownstreamInvertHD', 'Lp', 'W_emb', 
                     'ExistingGroundLevel', 'DrainBase_m', 'WaterLevel_m',
-                    'Velocity_ms', 'Qcap_m3s', 'Q_m3s', 'Depth_m', 'Froude']
+                    'Velocity_ms', 'Qcap_m3s', 'Q_m3s', 'Depth_m', 'Froude',
+                    'DrainBase_m-Culvert', 'WaterLevel_m-Culvert', 'Culvert-Q_m3s']
         
         for col in num_cols:
             if col in df.columns:
@@ -62,7 +49,7 @@ def load_google_sheet(url):
                 
         df = df.dropna(subset=['DI_No', 'Northing', 'Easting'])
         
-        # UTM Zone 48N -> WGS84
+        # แปลง UTM Zone 48N -> WGS84
         transformer = Transformer.from_crs("epsg:32648", "epsg:4326", always_xy=True)
         df['Lat'], df['Lng'] = np.nan, np.nan
         
@@ -77,7 +64,6 @@ def load_google_sheet(url):
         return None
 
 def format_km(km_val):
-    """แปลงค่า KM เป็นรูปแบบ 000+000.000"""
     try:
         val = float(km_val)
         return f"{int(val//1000):03d}+{val%1000:07.3f}"
@@ -85,7 +71,6 @@ def format_km(km_val):
         return str(km_val)
 
 def convert_df_to_csv(df):
-    """แปลง DataFrame เป็น CSV Bytes (UTF-8 with BOM)"""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(df.columns)
@@ -101,13 +86,11 @@ df_all = load_google_sheet(CSV_URL)
 if df_all is not None:
     st.sidebar.header("🎛️ ตัวกรองข้อมูล (Filters)")
     
-    # สร้างตัวเลือกโหมดการกรอง
     filter_mode = st.sidebar.radio("เลือกโหมดการกรอง:", ["กรองด้วย DI", "กรองด้วย KM"])
     
     df = df_all.copy()
     
     if filter_mode == "กรองด้วย DI":
-        # --- โหมดที่ 1: กรองด้วย DI_No ---
         di_list_all = df_all['DI_No'].tolist()
         
         col_di1, col_di2 = st.sidebar.columns(2)
@@ -123,7 +106,6 @@ if df_all is not None:
             df = df_all[(df_all['DI_No'] >= start_di) & (df_all['DI_No'] <= end_di)].copy()
     
     else:
-        # --- โหมดที่ 2: กรองด้วย KM_m (Chainage) ---
         min_km = float(df_all['KM_m'].min())
         max_km = float(df_all['KM_m'].max())
         
@@ -137,9 +119,6 @@ if df_all is not None:
         
         df = df_all[(df_all['KM_m'] >= km_range[0]) & (df_all['KM_m'] <= km_range[1])].copy()
     
-    # ---------------------------------------------------------
-    # แสดงข้อมูลช่วง KM ที่เลือก (แก้ปัญหา Dark mode)
-    # ---------------------------------------------------------
     if not df.empty:
         km_min_val = df['KM_m'].min()
         km_max_val = df['KM_m'].max()
@@ -161,9 +140,14 @@ if df_all is not None:
         st.session_state.selected_di = df['DI_No'].iloc[0] if not df.empty else None
 
     # ==========================================
-    # 4. Main Tabs Layout
+    # 4. Main Tabs Layout (เพิ่ม Cross Section)
     # ==========================================
-    tab1, tab2, tab3 = st.tabs(["🗺️ แผนที่ & ข้อมูล", "📈 กราฟ Profile", "📋 ตารางสรุป & Export"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🗺️ แผนที่ & ข้อมูล", 
+        "📈 กราฟ Profile", 
+        "📐 หน้าตัด U-Drain", 
+        "📋 ตารางสรุป & Export"
+    ])
 
     # --------------------------------------------------
     # TAB 1: Map & Inspector
@@ -259,7 +243,6 @@ if df_all is not None:
                     else: 
                         value_list.append("N/A")
                 
-                # แสดงตารางด้วย Style ที่บังคับพื้นหลังสีขาว
                 info_df = pd.DataFrame({"Parameter": param_list, "Value": value_list})
                 st.dataframe(
                     info_df.style.set_properties(**{'background-color': 'white', 'color': 'black'}),
@@ -305,28 +288,97 @@ if df_all is not None:
             )
 
     # --------------------------------------------------
-    # TAB 3: Data Tables & Export
+    # TAB 3: Cross Section (U-Drain) [ใหม่]
     # --------------------------------------------------
     with tab3:
-        st.subheader("📋 ตารางข้อมูล Input / Output")
+        st.subheader("📐 Cross Section (U-Drain)")
+        if not df.empty:
+            row = df[df['DI_No'] == st.session_state.selected_di].iloc[0]
+            
+            # ดึงขนาดท่อและระดับต่างๆ
+            B = 0.30 # สมมติว่ากว้าง 0.3m (ถ้ามีใน Sheet สามารถดึงได้)
+            base = row.get('DrainInvertLevel', 0)
+            top = row.get('LevelTopUdrain', base + 0.5)
+            H = top - base
+            wl = row.get('WaterLevel_m', base)
+            rl = row.get('RailLevel', top + 1.0)
+            
+            fig_xsec = go.Figure()
+            
+            # 1. วาดตัว U-Drain (พื้นคอนกรีต)
+            fig_xsec.add_shape(
+                type="rect", x0=-B/2, y0=base, x1=B/2, y1=top, 
+                line=dict(color="black", width=2), fillcolor="lightgray"
+            )
+            
+            # 2. วาดน้ำ (Water Level)
+            if pd.notna(wl) and wl > base:
+                wl_disp = min(wl, top)
+                fig_xsec.add_shape(
+                    type="rect", x0=-B/2, y0=base, x1=B/2, y1=wl_disp, 
+                    line=dict(color="blue", width=1), fillcolor="rgba(0, 191, 255, 0.5)"
+                )
+            
+            # 3. วาด Manhole / Culvert (ถ้ามี)
+            if str(row.get('HasDI', '')).upper() in ['YES', 'Y', '1']:
+                box_w = 1.0
+                box_base = row.get('ManholeLevelBottom', base - 1.8) if pd.notna(row.get('ManholeLevelBottom')) else base - 1.8
+                fig_xsec.add_shape(
+                    type="rect", x0=B/2, y0=box_base, x1=B/2+box_w, y1=top, 
+                    line=dict(color="gray", width=2), fillcolor="rgba(200, 200, 200, 0.5)"
+                )
+                fig_xsec.add_annotation(x=B/2 + box_w/2, y=top + 0.2, text="Manhole/Culvert", showarrow=False)
+
+            # 4. วาดเส้นระดับต่างๆ
+            fig_xsec.add_hline(y=wl, line_dash="dash", line_color="green", annotation_text=f"WL: {wl:.3f}")
+            fig_xsec.add_hline(y=top, line_dash="dot", line_color="purple", annotation_text=f"Top: {top:.3f}")
+            fig_xsec.add_hline(y=rl, line_color="black", annotation_text=f"Rail: {rl:.3f}")
+            
+            # 5. ตั้งค่าแกนและขนาด
+            fig_xsec.update_layout(
+                title=f"Cross Section @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})",
+                xaxis_title="Width (m)", yaxis_title="Elevation (m.msl)",
+                xaxis_range=[-B*2, B*2 + 1.5], yaxis_range=[base - 2.5, max(top, rl) + 1],
+                showlegend=False,
+                height=500
+            )
+            
+            st.plotly_chart(fig_xsec, use_container_width=True)
+
+            # ปุ่มดาวน์โหลด Cross Section (HTML)
+            html_xsec = fig_xsec.to_html(include_plotlyjs='cdn').encode('utf-8')
+            st.download_button(
+                label="📥 ดาวน์โหลด Cross Section (HTML)",
+                data=html_xsec,
+                file_name=f"CrossSection_DI_{st.session_state.selected_di}.html",
+                mime="text/html"
+            )
+
+    # --------------------------------------------------
+    # TAB 4: Data Tables & Export
+    # --------------------------------------------------
+    with tab4:
+        st.subheader("📋 ตารางข้อมูลผลลัพธ์")
         
-        input_cols = ['DI_No', 'KM_m', 'Northing', 'Easting', 'RailLevel', 'DrainInvertLevel', 'LevelTopUdrain']
-        output_cols = ['DI_No', 'KM_m', 'WaterLevel_m', 'Depth_m', 'Velocity_ms', 'Q_m3s', 'Froude']
-        
-        st.markdown("### 🔹 ตาราง Input (Geometry)")
+        # 1. ตาราง Input (Geometry & Hydrology)
+        st.markdown("### 1. ตาราง Input (Geometry & Hydrology)")
+        input_cols = ['DI_No', 'KM_m', 'Northing', 'Easting', 'RailLevel', 'DrainInvertLevel', 'LevelTopUdrain', 'Q_m3s', 'Intensity_mmhr', 'Tc_min']
         cols_input_show = [c for c in input_cols if c in df.columns]
         df_input_display = df[cols_input_show].copy()
         if 'KM_m' in df_input_display.columns:
             df_input_display['KM_m'] = df_input_display['KM_m'].apply(format_km)
         st.dataframe(df_input_display.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
         
-        st.markdown("### 🔹 ตาราง Output (Hydraulics)")
+        # 2. ตาราง Output (Hydraulics)
+        st.markdown("### 2. ตาราง Output (Hydraulics & Safety)")
+        output_cols = ['DI_No', 'KM_m', 'WaterLevel_m', 'Depth_m', 'Velocity_ms', 'Froude', 'Qcap_m3s', 'Shear_Pa', 'Shields']
         cols_output_show = [c for c in output_cols if c in df.columns]
         df_output_display = df[cols_output_show].copy()
         if 'KM_m' in df_output_display.columns:
             df_output_display['KM_m'] = df_output_display['KM_m'].apply(format_km)
         st.dataframe(df_output_display.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
 
+        # 3. ปุ่ม Export ตารางทั้งหมด
         csv_data = convert_df_to_csv(df)
         st.download_button(
             label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)",
