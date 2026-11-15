@@ -18,6 +18,7 @@ st.markdown("""
     .main-header { font-size: 24px; font-weight: bold; color: #0077cc; margin-bottom: 20px; }
     .range-info { background-color: rgba(0, 119, 204, 0.2); padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; border-left: 4px solid #0077cc; color: inherit; }
     .stDataFrame { background-color: white; padding: 10px; border-radius: 5px; color: black; }
+    .metric-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 5px solid #0077cc; color: black; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -73,11 +74,9 @@ def convert_df_to_csv(df):
         writer.writerow(row.values)
     return output.getvalue().encode('utf-8-sig')
 
-# ---------------------------------------------------------
-# [แก้ไข] ฟังก์ชัน safe_format ใหม่ (ตรวจสอบชนิดข้อมูลก่อนจัดรูปแบบ)
-# ---------------------------------------------------------
+# ฟังก์ชันจัดรูปแบบตารางที่ปลอดภัย
 def safe_format(df, format_str="{:.3f}", na_rep="-"):
-    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อนจัดรูปแบบ"""
+    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อน"""
     styled_df = df.copy()
     for col in styled_df.columns:
         styled_df[col] = styled_df[col].apply(
@@ -93,7 +92,7 @@ df_all = load_google_sheet(ALIGN_CSV_URL)
 
 if df_all is not None:
     if df_all.empty:
-        st.error("ไม่พบข้อมูลใน Sheet ที่ระบุ กรุณาตรวจสอบชื่อ Sheet ใน Google Sheets (ต้องเป็น 'Zone1_Alignment')")
+        st.error("ไม่พบข้อมูลใน Sheet ที่ระบุ กรุณาตรวจสอบชื่อ Sheet ใน Google Sheets")
         st.stop()
         
     st.sidebar.header("🎛️ ตัวกรองข้อมูล (Filters)")
@@ -153,7 +152,7 @@ if df_all is not None:
     ])
 
     # --------------------------------------------------
-    # TAB 1: Map & Inspector
+    # TAB 1: Map & Inspector (ปรับปรุงชื่อคอลัมน์)
     # --------------------------------------------------
     with tab1:
         col_map, col_info = st.columns([2, 1])
@@ -201,13 +200,6 @@ if df_all is not None:
                 st.session_state.selected_di = selected_di
                 selected_row = df[df['DI_No'] == selected_di].iloc[0]
 
-                # ฟังก์ชันช่วยหาคอลัมน์จาก Keyword
-                def find_col(keyword):
-                    for col in selected_row.index:
-                        if keyword.lower() in str(col).lower():
-                            return selected_row[col]
-                    return "-"
-
                 # 1. หมวด U-Drain
                 st.markdown("### 🔹 U-Drain")
                 udrain_data = {
@@ -216,7 +208,7 @@ if df_all is not None:
                     "Level Top U-drain [MSL]": selected_row.get('LevelTopUdrain', '-'),
                     "Water Level [MSL]": selected_row.get('WaterLevel_m', '-'),
                     "Depth [m]": selected_row.get('Depth_m', '-'),
-                    "Free Board [m]": selected_row.get('Free Board_msl', '-'),
+                    "Free Board [m]": selected_row.get('FreeBoard_m', '-'),
                     "Velocity [m/s]": selected_row.get('Velocity_ms', '-'),
                     "Flow-Q [CMS]": selected_row.get('Q_m3s', '-'),
                     "Froude No.": selected_row.get('Froude', '-')
@@ -227,10 +219,9 @@ if df_all is not None:
                 # 2. หมวด Manhole
                 st.markdown("### 🔹 Manhole")
                 manhole_data = {
-                    "Has-DI (YES/NO)": "Yes" if str(selected_row.get('HasDI', '')).upper() in ['1', '1.0', 'YES', 'Y', 'TRUE'] else "No",
-                    "WaterLevel_MSL-Manhole": find_col("WaterLevel_MSL-Manhole"),
-                    "DrainBase_MSL-Manhole": find_col("DrainBase_MSL-Manhole"),
-                    "Manhole Level Bottom [MSL]": selected_row.get('ManholeLevelBottom', '-')
+                    "Has-DI (YES/NO)": "Yes" if str(selected_row.get('Has_DI', selected_row.get('HasDI', ''))).upper() in ['1', '1.0', 'YES', 'Y', 'TRUE'] else "No",
+                    "WaterLevel_MSL-Manhole": selected_row.get('WaterLevel_m', '-'),
+                    "Manhole Level Bottom [MSL]": selected_row.get('DrainBase_m', '-')
                 }
                 df_manhole = pd.DataFrame(list(manhole_data.items()), columns=["Parameter", "Value"])
                 st.dataframe(safe_format(df_manhole).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
@@ -238,15 +229,15 @@ if df_all is not None:
                 # 3. หมวด Pipe Culvert
                 st.markdown("### 🔹 Pipe Culvert")
                 pipe_data = {
-                    "Pipe Class": find_col("Pipe_Class"),
-                    "Pipe Culvert Diameter [m]": find_col("Pipe Culvert Diameter"),
-                    "Upstream Invert HU [MSL]": find_col("HU_msl"),
-                    "Downstream Invert HD [MSL]": find_col("HD_msl"),
+                    "Pipe Class": selected_row.get('Pipe_Class', '-'),
+                    "Pipe Culvert Diameter [m]": selected_row.get('Pipe_D_m', '-'),
+                    "Upstream Invert HU [MSL]": selected_row.get('UpstreamInvertHU', '-'),
+                    "Downstream Invert HD [MSL]": selected_row.get('DownstreamInvertHD', '-'),
                     "Existing Ground Level [MSL]": selected_row.get('ExistingGroundLevel', '-'),
-                    "Lp [m]": find_col("Lp_m"),
-                    "Pipe Culvert_Slope": find_col("Pipe Culvert_Slope"),
-                    "Velocity [m/s] Pipe Culvert": find_col("Velocity [m/s] Pipe Culvert"),
-                    "Flow-Q [CMS] Pipe Culvert": find_col("Flow-Q [CMS] Pipe Culvert")
+                    "Lp [m]": selected_row.get('Lp', '-'),
+                    "Slope_Pipe Culvert": selected_row.get('Pipe_Slope', '-'),
+                    "Velocity [m/s] Pipe Culvert": selected_row.get('Pipe_V_ms', '-'),
+                    "Flow-Q [CMS] Pipe Culvert": selected_row.get('Pipe_Qcap_m3s', '-')
                 }
                 df_pipe = pd.DataFrame(list(pipe_data.items()), columns=["Parameter", "Value"])
                 st.dataframe(safe_format(df_pipe).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
@@ -278,7 +269,7 @@ if df_all is not None:
             st.download_button(label="📥 ดาวน์โหลดกราฟ Profile (HTML)", data=html_bytes, file_name="Longitudinal_Profile.html", mime="text/html")
 
     # --------------------------------------------------
-    # TAB 3: Cross Section U-Drain
+    # TAB 3: Cross Section U-Drain (Dynamic + Dimension Lines)
     # --------------------------------------------------
     with tab3:
         st.subheader("📐 Cross Section U-Drain")
@@ -288,19 +279,25 @@ if df_all is not None:
             base = row.get('DrainInvertLevel', 0)
             top = row.get('LevelTopUdrain', base + 0.5)
             wl = row.get('WaterLevel_m', base)
+            wl_capped = row.get('WL_capped_m', wl)
             rl = row.get('RailLevel', top + 1.0)
             fb = top - wl
             
             fig_xsec = go.Figure()
+            
+            # วาดตัว U-Drain
             fig_xsec.add_shape(type="rect", x0=-B/2, y0=base, x1=B/2, y1=top, line=dict(color="black", width=2), fillcolor="lightgray")
+            # วาดน้ำ
             if pd.notna(wl) and wl > base:
                 wl_disp = min(wl, top)
                 fig_xsec.add_shape(type="rect", x0=-B/2, y0=base, x1=B/2, y1=wl_disp, line=dict(color="blue", width=1), fillcolor="rgba(0, 191, 255, 0.5)")
             
+            # วาดเส้น Reference
             fig_xsec.add_hline(y=wl, line_dash="dash", line_color="green", annotation_text=f"WL: {wl:.3f}")
             fig_xsec.add_hline(y=top, line_dash="dot", line_color="purple", annotation_text=f"Top: {top:.3f}")
             fig_xsec.add_hline(y=rl, line_color="black", annotation_text=f"Rail: {rl:.3f}")
 
+            # วาด Dimension Lines
             fig_xsec.add_annotation(x=0, y=base - 0.1, text=f"Width = {B:.3f} m", showarrow=False, bgcolor="white")
             fig_xsec.add_shape(type="line", x0=-B/2, y0=base - 0.08, x1=B/2, y1=base - 0.08, line=dict(color="black", width=1, dash="dash"))
             fig_xsec.add_shape(type="line", x0=-B/2, y0=base - 0.10, x1=-B/2, y1=base - 0.06, line=dict(color="black", width=1))
@@ -321,12 +318,15 @@ if df_all is not None:
             )
             st.plotly_chart(fig_xsec, use_container_width=True)
 
+            # แสดงค่า V, Q ใต้กราฟ
             st.markdown(f"""
-            <div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 5px solid #0077cc; color: black;'>
+            <div class="metric-box">
                 <b>Hydraulic Properties:</b><br>
                 - Velocity: {row.get('Velocity_ms', 0):.3f} m/s<br>
                 - Flow-Q: {row.get('Q_m3s', 0):.4f} CMS<br>
-                - Froude No.: {row.get('Froude', 0):.3f}
+                - Froude No.: {row.get('Froude', 0):.3f}<br>
+                - Water Level: {wl:.3f} m.msl<br>
+                - Capped Water Level: {wl_capped:.3f} m.msl
             </div>
             """, unsafe_allow_html=True)
 
@@ -341,39 +341,43 @@ if df_all is not None:
         if not df.empty:
             row = df[df['DI_No'] == st.session_state.selected_di].iloc[0]
             
-            # ค้นหาคอลัมน์แบบ Dynamic
-            def find_col(keyword):
-                for col in row.index:
-                    if keyword.lower() in str(col).lower():
-                        return row[col]
-                return 0
-
-            base_inv = find_col("DrainBase_MSL-Manhole")
-            wl_mh = find_col("WaterLevel_MSL-Manhole")
-            pipe_dia = find_col("Pipe Culvert Diameter")
-            pipe_class = find_col("Pipe_Class")
-            hu = find_col("HU_msl")
-            hd = find_col("HD_msl")
-            lp = find_col("Lp_m")
-            slope = find_col("Pipe Culvert_Slope")
-            v_pipe = find_col("Velocity [m/s] Pipe Culvert")
-            q_pipe = find_col("Flow-Q [CMS] Pipe Culvert")
+            # ดึงค่าตามชื่อคอลัมน์ที่กำหนด
+            base_inv = row.get('DrainBase_MSL-Manhole', row.get('DrainInvertLevel', 0))
+            wl_mh = row.get('WaterLevel_MSL-Manhole', row.get('WaterLevel_m', 0))
+            pipe_dia = row.get('Pipe Culvert Diameter [m]', row.get('Pipe_D_m', 0.6))
+            pipe_class = row.get('Pipe_Class', '-')
+            hu = row.get('UpstreamInvertHU', 0)
+            hd = row.get('DownstreamInvertHD', 0)
+            lp = row.get('Lp', 9.0)
+            slope = row.get('Pipe_Slope', 0)
+            v_pipe = row.get('Pipe_V_ms', 0)
+            q_pipe = row.get('Pipe_Qcap_m3s', 0)
             
             top_level = row.get('LevelTopUdrain', base_inv + 0.5)
             eg = row.get('ExistingGroundLevel', top_level + 0.5)
-            mh_bottom = row.get('ManholeLevelBottom', base_inv - 1.8)
+            mh_bottom = row.get('ManholeLevelBottom', row.get('DrainBase_m', base_inv - 1.8))
             
             fig_long = go.Figure()
+            
+            # 1. ผิวดิน (EG)
             fig_long.add_trace(go.Scatter(x=[-1, lp+1], y=[eg, eg], mode='lines', name='Existing Ground', line=dict(color='#8d6e63', width=3)))
+            
+            # 2. ตัว Manhole (สี่เหลี่ยม)
             fig_long.add_shape(type="rect", x0=-0.5, y0=mh_bottom, x1=0.5, y1=top_level, line=dict(color="black", width=2), fillcolor="lightgray")
+            
+            # 3. ท่อ Culvert (เส้น HU ถึง HD)
             fig_long.add_trace(go.Scatter(x=[0, lp], y=[hu, hd], mode='lines', name='Pipe Culvert', line=dict(color='blue', width=2)))
+            
+            # 4. ท้องท่อ (Invert) ที่ Manhole
             fig_long.add_hline(y=base_inv, line_dash="dot", line_color="purple", annotation_text=f"Invert: {base_inv:.3f}")
 
+            # วาด Dimension Lines
             fig_long.add_annotation(x=lp/2, y=hd - 0.2, text=f"Lp = {lp:.3f} m", showarrow=False, bgcolor="white")
             fig_long.add_shape(type="line", x0=0, y0=hd - 0.15, x1=lp, y1=hd - 0.15, line=dict(color="black", width=1, dash="dash"))
             fig_long.add_shape(type="line", x0=0, y0=hd - 0.18, x1=0, y1=hd - 0.12, line=dict(color="black", width=1))
             fig_long.add_shape(type="line", x0=lp, y0=hd - 0.18, x1=lp, y1=hd - 0.12, line=dict(color="black", width=1))
             
+            # ค่า HU, HD
             fig_long.add_annotation(x=-0.2, y=hu, text=f"HU: {hu:.3f}", showarrow=False, bgcolor="white")
             fig_long.add_annotation(x=lp+0.2, y=hd, text=f"HD: {hd:.3f}", showarrow=False, bgcolor="white")
 
@@ -384,13 +388,14 @@ if df_all is not None:
             )
             st.plotly_chart(fig_long, use_container_width=True)
 
+            # แสดงค่าต่างๆ ตามที่คุณระบุ
             st.markdown(f"""
-            <div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 5px solid #0077cc; color: black;'>
+            <div class="metric-box">
                 <b>Manhole & Culvert Properties:</b><br>
-                - Has-DI: {'YES' if str(row.get('HasDI', '')).upper() in ['YES', '1', 'Y'] else 'NO'}<br>
-                - DrainBase_MSL-Manhole: {base_inv:.3f} m.msl<br>
+                - Has-DI: {'YES' if str(row.get('Has_DI', row.get('HasDI', ''))).upper() in ['YES', '1', 'Y'] else 'NO'}<br>
                 - WaterLevel_MSL-Manhole: {wl_mh:.3f} m.msl<br>
                 - Manhole Level Bottom: {mh_bottom:.3f} m.msl<br>
+                <b>Pipe Culvert:</b><br>
                 - Pipe Class: {pipe_class}<br>
                 - Pipe Diameter: {pipe_dia:.3f} m<br>
                 - Upstream Invert HU: {hu:.3f} m.msl<br>
