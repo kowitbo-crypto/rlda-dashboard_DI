@@ -16,7 +16,23 @@ st.set_page_config(page_title="RLDA Dashboard Pro", layout="wide", initial_sideb
 st.markdown("""
     <style>
     .main-header { font-size: 24px; font-weight: bold; color: #0077cc; margin-bottom: 20px; }
-    .range-info { background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; border-left: 4px solid #0077cc; }
+    /* สไตล์สำหรับกล่องแจ้งเตือน ให้พื้นหลังโปร่งแสง และตัวอักษรสีขาว */
+    .range-info {
+        background-color: rgba(0, 119, 204, 0.2); /* สีฟ้าโปร่งแสง */
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        font-size: 14px;
+        border-left: 4px solid #0077cc;
+        color: inherit; /* ใช้สีตาม Theme (ขาวใน Dark, ดำใน Light) */
+    }
+    /* บังคับให้ตาราง Data Inspector มีพื้นหลังสีขาวและตัวอักษรสีดำ เพื่อให้อ่านง่าย */
+    .stDataFrame {
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        color: black;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -85,30 +101,48 @@ df_all = load_google_sheet(CSV_URL)
 if df_all is not None:
     st.sidebar.header("🎛️ ตัวกรองข้อมูล (Filters)")
     
-    # ดึงรายการ DI_No
-    di_list_all = df_all['DI_No'].tolist()
+    # สร้างตัวเลือกโหมดการกรอง
+    filter_mode = st.sidebar.radio("เลือกโหมดการกรอง:", ["กรองด้วย DI", "กรองด้วย KM"])
     
-    # UI: เลือก DI
-    st.sidebar.markdown("**เลือกช่วง DI (DI Range)**")
-    col_di1, col_di2 = st.sidebar.columns(2)
-    with col_di1:
-        start_di = st.selectbox("เริ่มต้นที่ DI:", di_list_all, index=0)
-    with col_di2:
-        end_di = st.selectbox("สิ้นสุดที่ DI:", di_list_all, index=len(di_list_all)-1)
+    df = df_all.copy()
     
-    # กรองข้อมูลตามช่วง DI
-    if start_di > end_di:
-        st.sidebar.error("⚠️ DI เริ่มต้นต้องน้อยกว่าหรือเท่ากับ DI สิ้นสุด")
-        df = df_all[(df_all['DI_No'] >= end_di) & (df_all['DI_No'] <= start_di)].copy()
+    if filter_mode == "กรองด้วย DI":
+        # --- โหมดที่ 1: กรองด้วย DI_No ---
+        di_list_all = df_all['DI_No'].tolist()
+        
+        col_di1, col_di2 = st.sidebar.columns(2)
+        with col_di1:
+            start_di = st.selectbox("เริ่มต้นที่ DI:", di_list_all, index=0)
+        with col_di2:
+            end_di = st.selectbox("สิ้นสุดที่ DI:", di_list_all, index=len(di_list_all)-1)
+        
+        if start_di > end_di:
+            st.sidebar.error("⚠️ DI เริ่มต้นต้องน้อยกว่าหรือเท่ากับ DI สิ้นสุด")
+            df = df_all[(df_all['DI_No'] >= end_di) & (df_all['DI_No'] <= start_di)].copy()
+        else:
+            df = df_all[(df_all['DI_No'] >= start_di) & (df_all['DI_No'] <= end_di)].copy()
+    
     else:
-        df = df_all[(df_all['DI_No'] >= start_di) & (df_all['DI_No'] <= end_di)].copy()
+        # --- โหมดที่ 2: กรองด้วย KM_m (Chainage) ---
+        min_km = float(df_all['KM_m'].min())
+        max_km = float(df_all['KM_m'].max())
+        
+        km_range = st.sidebar.slider(
+            "เลือกช่วง Chainage (KM)",
+            min_value=min_km,
+            max_value=max_km,
+            value=(min_km, max_km),
+            step=100.0
+        )
+        
+        df = df_all[(df_all['KM_m'] >= km_range[0]) & (df_all['KM_m'] <= km_range[1])].copy()
     
     # ---------------------------------------------------------
-    # แสดงข้อมูลช่วง KM ที่เลือก (แบบ 000+000.000)
+    # แสดงข้อมูลช่วง KM ที่เลือก (แก้ปัญหา Dark mode)
     # ---------------------------------------------------------
     if not df.empty:
-        km_min = df['KM_m'].min()
-        km_max = df['KM_m'].max()
+        km_min_val = df['KM_m'].min()
+        km_max_val = df['KM_m'].max()
         di_min = df['DI_No'].min()
         di_max = df['DI_No'].max()
         
@@ -116,7 +150,7 @@ if df_all is not None:
         <div class="range-info">
             <b>📍 ช่วงข้อมูลที่เลือก:</b><br>
             <b>DI:</b> {di_min} ถึง {di_max}<br>
-            <b>KM:</b> {format_km(km_min)} ถึง {format_km(km_max)}<br>
+            <b>KM:</b> {format_km(km_min_val)} ถึง {format_km(km_max_val)}<br>
             <b>จำนวน:</b> {len(df)} จุด
         </div>
         """, unsafe_allow_html=True)
@@ -154,7 +188,7 @@ if df_all is not None:
                 folium.PolyLine(route_coords, color="#FF4500", weight=4, opacity=0.9).add_to(m)
                 
                 for idx, row in df.iterrows():
-                    popup_html = f"<div style='background-color:white; padding:5px; border-radius:5px;'><b>DI {int(row['DI_No'])}</b><br>KM: {format_km(row['KM_m'])}</div>"
+                    popup_html = f"<div style='background-color:white; padding:5px; border-radius:5px; color:black;'><b>DI {int(row['DI_No'])}</b><br>KM: {format_km(row['KM_m'])}</div>"
                     folium.Marker(
                         location=[row['Lat'], row['Lng']],
                         popup=folium.Popup(popup_html, max_width=200),
@@ -191,7 +225,7 @@ if df_all is not None:
                 
                 display_map = {
                     "DI_No": "DI_No", 
-                    "KM_m": "KM (m)",  # ใช้ KM_m แทน KM_Text เพื่อให้แสดงผลแบบ 000+000.000
+                    "KM_m": "KM (m)",
                     "RailLevel": "Rail Level [MSL]", 
                     "DrainInvertLevel": "Drain Invert Level [MSL]",
                     "LevelTopUdrain": "Level Top U-drain [MSL]", 
@@ -214,7 +248,7 @@ if df_all is not None:
                         if pd.isna(val): 
                             value_list.append("-")
                         elif key == 'KM_m':
-                            value_list.append(format_km(val))  # แสดงผลแบบ KM
+                            value_list.append(format_km(val))
                         elif key in ['Remark_DI_NO']: 
                             value_list.append(str(val))
                         elif key == 'HasDI':
@@ -224,8 +258,13 @@ if df_all is not None:
                             value_list.append(f"{val:.3f}")
                     else: 
                         value_list.append("N/A")
-                        
-                st.dataframe(pd.DataFrame({"Parameter": param_list, "Value": value_list}), hide_index=True, use_container_width=True, height=550)
+                
+                # แสดงตารางด้วย Style ที่บังคับพื้นหลังสีขาว
+                info_df = pd.DataFrame({"Parameter": param_list, "Value": value_list})
+                st.dataframe(
+                    info_df.style.set_properties(**{'background-color': 'white', 'color': 'black'}),
+                    hide_index=True, use_container_width=True, height=550
+                )
 
     # --------------------------------------------------
     # TAB 2: Longitudinal Profile
@@ -257,7 +296,6 @@ if df_all is not None:
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Export กราฟเป็น HTML
             html_bytes = fig.to_html(include_plotlyjs='cdn').encode('utf-8')
             st.download_button(
                 label="📥 ดาวน์โหลดกราฟ Profile (HTML)",
@@ -277,20 +315,18 @@ if df_all is not None:
         
         st.markdown("### 🔹 ตาราง Input (Geometry)")
         cols_input_show = [c for c in input_cols if c in df.columns]
-        # สร้าง DataFrame พร้อมแปลง KM เป็นรูปแบบ
         df_input_display = df[cols_input_show].copy()
         if 'KM_m' in df_input_display.columns:
             df_input_display['KM_m'] = df_input_display['KM_m'].apply(format_km)
-        st.dataframe(df_input_display.style.format(precision=3), use_container_width=True)
+        st.dataframe(df_input_display.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
         
         st.markdown("### 🔹 ตาราง Output (Hydraulics)")
         cols_output_show = [c for c in output_cols if c in df.columns]
         df_output_display = df[cols_output_show].copy()
         if 'KM_m' in df_output_display.columns:
             df_output_display['KM_m'] = df_output_display['KM_m'].apply(format_km)
-        st.dataframe(df_output_display.style.format(precision=3), use_container_width=True)
+        st.dataframe(df_output_display.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
 
-        # Export ตารางเป็น CSV
         csv_data = convert_df_to_csv(df)
         st.download_button(
             label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)",
