@@ -73,6 +73,17 @@ def convert_df_to_csv(df):
         writer.writerow(row.values)
     return output.getvalue().encode('utf-8-sig')
 
+# ฟังก์ชันจัดรูปแบบตารางแบบปลอดภัย
+def safe_format(df, format_str="{:.3f}", na_rep="-"):
+    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อน"""
+    styled_df = df.copy()
+    for col in styled_df.columns:
+        if styled_df[col].dtype == 'object':
+            styled_df[col] = styled_df[col].apply(lambda x: f"{x:.3f}" if isinstance(x, (int, float)) and pd.notna(x) else (na_rep if pd.isna(x) else str(x)))
+        else:
+            styled_df[col] = styled_df[col].apply(lambda x: format_str.format(x) if pd.notna(x) else na_rep)
+    return styled_df
+
 # ==========================================
 # 3. Load Data & Sidebar Filters
 # ==========================================
@@ -140,7 +151,7 @@ if df_all is not None:
     ])
 
     # --------------------------------------------------
-    # TAB 1: Map & Inspector (Dynamic Column Mapping)
+    # TAB 1: Map & Inspector
     # --------------------------------------------------
     with tab1:
         col_map, col_info = st.columns([2, 1])
@@ -209,7 +220,8 @@ if df_all is not None:
                     "Froude No.": selected_row.get('Froude', '-')
                 }
                 df_udrain = pd.DataFrame(list(udrain_data.items()), columns=["Parameter", "Value"])
-                st.dataframe(df_udrain.style.format({"Value": "{:.3f}"}, na_rep="-").set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
+                # ใช้ safe_format เพื่อไม่ให้ error
+                st.dataframe(safe_format(df_udrain).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
 
                 # 2. หมวด Manhole
                 st.markdown("### 🔹 Manhole")
@@ -220,7 +232,7 @@ if df_all is not None:
                     "Manhole Level Bottom [MSL]": selected_row.get('ManholeLevelBottom', '-')
                 }
                 df_manhole = pd.DataFrame(list(manhole_data.items()), columns=["Parameter", "Value"])
-                st.dataframe(df_manhole.style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
+                st.dataframe(safe_format(df_manhole).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
 
                 # 3. หมวด Pipe Culvert
                 st.markdown("### 🔹 Pipe Culvert")
@@ -236,7 +248,7 @@ if df_all is not None:
                     "Flow-Q [CMS] Pipe Culvert": find_col("Flow-Q [CMS] Pipe Culvert")
                 }
                 df_pipe = pd.DataFrame(list(pipe_data.items()), columns=["Parameter", "Value"])
-                st.dataframe(df_pipe.style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
+                st.dataframe(safe_format(df_pipe).style.set_properties(**{'background-color': 'white', 'color': 'black'}), hide_index=True, use_container_width=True)
 
     # --------------------------------------------------
     # TAB 2: Longitudinal Profile
