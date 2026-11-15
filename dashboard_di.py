@@ -16,13 +16,14 @@ st.set_page_config(page_title="RLDA Dashboard Pro", layout="wide", initial_sideb
 st.markdown("""
     <style>
     .main-header { font-size: 24px; font-weight: bold; color: #0077cc; margin-bottom: 20px; }
+    .range-info { background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; border-left: 4px solid #0077cc; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">RLDA v11.2.4 | Interactive Dashboard (UTM 48N)</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. Helper Functions (ปลอดภัย 100% บน Cloud)
+# 2. Helper Functions
 # ==========================================
 SHEET_ID = "1wkOIwvJGbsWz3MccBgFMIng9NqJ5v9HQ5yw_bfv1eMY"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
@@ -59,25 +60,22 @@ def load_google_sheet(url):
         st.error(f"❌ ไม่สามารถโหลดข้อมูลได้: {e}")
         return None
 
-def format_km(km_text):
+def format_km(km_val):
+    """แปลงค่า KM เป็นรูปแบบ 000+000.000"""
     try:
-        val = float(km_text)
-        return f"{int(val//1000)}+{val%1000:06.3f}"
+        val = float(km_val)
+        return f"{int(val//1000):03d}+{val%1000:07.3f}"
     except:
-        return str(km_text)
+        return str(km_val)
 
-# ---------------------------------------------------------
-# ฟังก์ชัน Export แบบใหม่ (ใช้ CSV มาตรฐาน ไม่ต้องใช้ xlsxwriter)
-# ---------------------------------------------------------
 def convert_df_to_csv(df):
-    """แปลง DataFrame เป็น CSV Bytes โดยใช้ io และ csv มาตรฐาน"""
+    """แปลง DataFrame เป็น CSV Bytes (UTF-8 with BOM)"""
     output = io.StringIO()
-    # ใช้ csv.writer เพื่อป้องกันปัญหาภาษาไทยเพี้ยน
     writer = csv.writer(output)
     writer.writerow(df.columns)
     for _, row in df.iterrows():
         writer.writerow(row.values)
-    return output.getvalue().encode('utf-8-sig') # utf-8-sig สำหรับ Excel เปิดอ่านภาษาไทยได้
+    return output.getvalue().encode('utf-8-sig')
 
 # ==========================================
 # 3. Load Data & Sidebar Filters
@@ -87,21 +85,43 @@ df_all = load_google_sheet(CSV_URL)
 if df_all is not None:
     st.sidebar.header("🎛️ ตัวกรองข้อมูล (Filters)")
     
+    # ดึงรายการ DI_No
     di_list_all = df_all['DI_No'].tolist()
     
+    # UI: เลือก DI
+    st.sidebar.markdown("**เลือกช่วง DI (DI Range)**")
     col_di1, col_di2 = st.sidebar.columns(2)
     with col_di1:
         start_di = st.selectbox("เริ่มต้นที่ DI:", di_list_all, index=0)
     with col_di2:
         end_di = st.selectbox("สิ้นสุดที่ DI:", di_list_all, index=len(di_list_all)-1)
     
+    # กรองข้อมูลตามช่วง DI
     if start_di > end_di:
         st.sidebar.error("⚠️ DI เริ่มต้นต้องน้อยกว่าหรือเท่ากับ DI สิ้นสุด")
         df = df_all[(df_all['DI_No'] >= end_di) & (df_all['DI_No'] <= start_di)].copy()
     else:
         df = df_all[(df_all['DI_No'] >= start_di) & (df_all['DI_No'] <= end_di)].copy()
+    
+    # ---------------------------------------------------------
+    # แสดงข้อมูลช่วง KM ที่เลือก (แบบ 000+000.000)
+    # ---------------------------------------------------------
+    if not df.empty:
+        km_min = df['KM_m'].min()
+        km_max = df['KM_m'].max()
+        di_min = df['DI_No'].min()
+        di_max = df['DI_No'].max()
         
-    st.sidebar.success(f"แสดงผล {len(df)} จุด (จากทั้งหมด {len(df_all)} จุด)")
+        st.sidebar.markdown(f"""
+        <div class="range-info">
+            <b>📍 ช่วงข้อมูลที่เลือก:</b><br>
+            <b>DI:</b> {di_min} ถึง {di_max}<br>
+            <b>KM:</b> {format_km(km_min)} ถึง {format_km(km_max)}<br>
+            <b>จำนวน:</b> {len(df)} จุด
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.sidebar.warning("⚠️ ไม่พบข้อมูลในช่วงที่เลือก")
 
     if 'selected_di' not in st.session_state:
         st.session_state.selected_di = df['DI_No'].iloc[0] if not df.empty else None
@@ -170,13 +190,20 @@ if df_all is not None:
                 selected_row = df[df['DI_No'] == selected_di].iloc[0]
                 
                 display_map = {
-                    "DI_No": "DI_No", "KM_Text": "KM_Text", "KM_m": "KM_m",
-                    "RailLevel": "Rail Level [MSL]", "DrainInvertLevel": "Drain Invert Level [MSL]",
-                    "LevelTopUdrain": "Level Top U-drain [MSL]", "ManholeLevelBottom": "Manhole Bottom [MSL]",
-                    "HasDI": "HasDI", "ExistingGroundLevel": "Existing Ground Level [MSL]",
-                    "Remark_DI_NO": "Remark", "WaterLevel_m": "Water Level [MSL]",
-                    "Depth_m": "Depth [m]", "Velocity_ms": "Velocity [m/s]",
-                    "Q_m3s": "Q [CMS]", "Froude": "Froude No."
+                    "DI_No": "DI_No", 
+                    "KM_m": "KM (m)",  # ใช้ KM_m แทน KM_Text เพื่อให้แสดงผลแบบ 000+000.000
+                    "RailLevel": "Rail Level [MSL]", 
+                    "DrainInvertLevel": "Drain Invert Level [MSL]",
+                    "LevelTopUdrain": "Level Top U-drain [MSL]", 
+                    "ManholeLevelBottom": "Manhole Bottom [MSL]",
+                    "HasDI": "HasDI", 
+                    "ExistingGroundLevel": "Existing Ground Level [MSL]",
+                    "Remark_DI_NO": "Remark", 
+                    "WaterLevel_m": "Water Level [MSL]",
+                    "Depth_m": "Depth [m]", 
+                    "Velocity_ms": "Velocity [m/s]",
+                    "Q_m3s": "Q [CMS]", 
+                    "Froude": "Froude No."
                 }
                 
                 param_list, value_list = [], []
@@ -184,13 +211,19 @@ if df_all is not None:
                     param_list.append(label)
                     if key in selected_row:
                         val = selected_row[key]
-                        if pd.isna(val): value_list.append("-")
-                        elif key in ['KM_Text', 'Remark_DI_NO']: value_list.append(str(val))
+                        if pd.isna(val): 
+                            value_list.append("-")
+                        elif key == 'KM_m':
+                            value_list.append(format_km(val))  # แสดงผลแบบ KM
+                        elif key in ['Remark_DI_NO']: 
+                            value_list.append(str(val))
                         elif key == 'HasDI':
                             val_str = str(val).strip().upper()
                             value_list.append("Yes" if val_str in ['1', '1.0', 'YES', 'Y', 'TRUE'] else "No")
-                        else: value_list.append(f"{val:.3f}")
-                    else: value_list.append("N/A")
+                        else: 
+                            value_list.append(f"{val:.3f}")
+                    else: 
+                        value_list.append("N/A")
                         
                 st.dataframe(pd.DataFrame({"Parameter": param_list, "Value": value_list}), hide_index=True, use_container_width=True, height=550)
 
@@ -216,7 +249,12 @@ if df_all is not None:
 
             fig.add_trace(go.Scatter(x=[selected_row['KM_m']], y=[selected_row['RailLevel']], mode='markers', name='Selected Node', marker=dict(color='red', size=16, symbol='star', line=dict(color='black', width=1.5))))
             
-            fig.update_layout(title="Profile (Elevation vs Chainage)", xaxis_title="Chainage (m)", yaxis_title="Elevation (m.msl)", hovermode="x unified")
+            fig.update_layout(
+                title="Profile (Elevation vs Chainage)", 
+                xaxis_title="Chainage (m)", 
+                yaxis_title="Elevation (m.msl)", 
+                hovermode="x unified"
+            )
             st.plotly_chart(fig, use_container_width=True)
             
             # Export กราฟเป็น HTML
@@ -234,20 +272,25 @@ if df_all is not None:
     with tab3:
         st.subheader("📋 ตารางข้อมูล Input / Output")
         
-        input_cols = ['DI_No', 'KM_Text', 'Northing', 'Easting', 'RailLevel', 'DrainInvertLevel', 'LevelTopUdrain']
-        output_cols = ['DI_No', 'KM_Text', 'WaterLevel_m', 'Depth_m', 'Velocity_ms', 'Q_m3s', 'Froude']
+        input_cols = ['DI_No', 'KM_m', 'Northing', 'Easting', 'RailLevel', 'DrainInvertLevel', 'LevelTopUdrain']
+        output_cols = ['DI_No', 'KM_m', 'WaterLevel_m', 'Depth_m', 'Velocity_ms', 'Q_m3s', 'Froude']
         
         st.markdown("### 🔹 ตาราง Input (Geometry)")
         cols_input_show = [c for c in input_cols if c in df.columns]
-        st.dataframe(df[cols_input_show].style.format(precision=3), use_container_width=True)
+        # สร้าง DataFrame พร้อมแปลง KM เป็นรูปแบบ
+        df_input_display = df[cols_input_show].copy()
+        if 'KM_m' in df_input_display.columns:
+            df_input_display['KM_m'] = df_input_display['KM_m'].apply(format_km)
+        st.dataframe(df_input_display.style.format(precision=3), use_container_width=True)
         
         st.markdown("### 🔹 ตาราง Output (Hydraulics)")
         cols_output_show = [c for c in output_cols if c in df.columns]
-        st.dataframe(df[cols_output_show].style.format(precision=3), use_container_width=True)
+        df_output_display = df[cols_output_show].copy()
+        if 'KM_m' in df_output_display.columns:
+            df_output_display['KM_m'] = df_output_display['KM_m'].apply(format_km)
+        st.dataframe(df_output_display.style.format(precision=3), use_container_width=True)
 
-        # ---------------------------------------------------------
-        # [แก้ไข] Export ตารางเป็น CSV แบบ Native (ไม่ใช้ xlsxwriter)
-        # ---------------------------------------------------------
+        # Export ตารางเป็น CSV
         csv_data = convert_df_to_csv(df)
         st.download_button(
             label="📥 ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)",
