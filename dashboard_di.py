@@ -259,15 +259,16 @@ if df_all is not None:
 
             fig.add_trace(go.Scatter(x=[selected_row['KM_m']], y=[selected_row['RailLevel']], mode='markers', name='Selected Node', marker=dict(color='red', size=16, symbol='star', line=dict(color='black', width=1.5))))
             
-            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ ทุกส่วน
             fig.update_layout(
-                title="Profile (Elevation vs Chainage)", 
-                xaxis_title="Chainage (m)", 
-                yaxis_title="Elevation (m.msl)", 
+                title=dict(text="Profile (Elevation vs Chainage)", font=dict(color='black', size=16)),
+                xaxis=dict(title=dict(text="Chainage (m)", font=dict(color='black')), tickfont=dict(color='black')),
+                yaxis=dict(title=dict(text="Elevation (m.msl)", font=dict(color='black')), tickfont=dict(color='black')),
                 hovermode="x unified",
                 paper_bgcolor='white',
                 plot_bgcolor='white',
-                font=dict(color='black')
+                font=dict(color='black'),
+                legend=dict(font=dict(color='black'))
             )
             st.plotly_chart(fig, use_container_width=True)
             
@@ -317,10 +318,11 @@ if df_all is not None:
                 fig_xsec.add_annotation(x=B/2 + 0.05, y=(wl+top)/2, text=f"FB = {fb:.3f} m", showarrow=False, bgcolor="white", font=dict(color="black"))
                 fig_xsec.add_shape(type="line", x0=B/2 + 0.02, y0=wl, x1=B/2 + 0.02, y1=top, line=dict(color="black", width=1, dash="dash"))
 
-            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ ทุกส่วน
             fig_xsec.update_layout(
-                title=f"Cross Section U-Drain @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})",
-                xaxis_title="Width (m)", yaxis_title="Elevation (m.msl)",
+                title=dict(text=f"Cross Section U-Drain @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})", font=dict(color='black', size=16)),
+                xaxis=dict(title=dict(text="Width (m)", font=dict(color='black')), tickfont=dict(color='black')),
+                yaxis=dict(title=dict(text="Elevation (m.msl)", font=dict(color='black')), tickfont=dict(color='black')),
                 xaxis_range=[-B*2, B*2], yaxis_range=[base - 0.5, max(top, rl) + 1], 
                 showlegend=False, height=500,
                 paper_bgcolor='white',
@@ -391,15 +393,17 @@ if df_all is not None:
             fig_long.add_annotation(x=-0.2, y=hu, text=f"HU: {hu:.3f}", showarrow=False, bgcolor="white", font=dict(color="black"))
             fig_long.add_annotation(x=lp+0.2, y=hd, text=f"HD: {hd:.3f}", showarrow=False, bgcolor="white", font=dict(color="black"))
 
-            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ ทุกส่วน
             fig_long.update_layout(
-                title=f"Longitudinal Section @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})",
-                xaxis_title="Distance (m)", yaxis_title="Elevation (m.msl)",
+                title=dict(text=f"Longitudinal Section @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})", font=dict(color='black', size=16)),
+                xaxis=dict(title=dict(text="Distance (m)", font=dict(color='black')), tickfont=dict(color='black')),
+                yaxis=dict(title=dict(text="Elevation (m.msl)", font=dict(color='black')), tickfont=dict(color='black')),
                 xaxis_range=[-1.5, lp+1.5], yaxis_range=[mh_bottom - 1, eg + 1], 
                 showlegend=True, height=500,
                 paper_bgcolor='white',
                 plot_bgcolor='white',
-                font=dict(color='black')
+                font=dict(color='black'),
+                legend=dict(font=dict(color='black'))
             )
             st.plotly_chart(fig_long, use_container_width=True)
 
