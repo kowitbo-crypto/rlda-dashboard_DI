@@ -18,7 +18,7 @@ st.markdown("""
     .main-header { font-size: 24px; font-weight: bold; color: #0077cc; margin-bottom: 20px; }
     .range-info { background-color: rgba(0, 119, 204, 0.2); padding: 10px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; border-left: 4px solid #0077cc; color: inherit; }
     .stDataFrame { background-color: white; padding: 10px; border-radius: 5px; color: black; }
-    .metric-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 5px solid #0077cc; color: black; margin-top: 10px; }
+    .metric-box { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 5px solid #0077cc; color: black; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -37,7 +37,6 @@ def load_google_sheet(url):
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip()
         
-        # แปลงข้อมูลเป็นตัวเลข (ยกเว้นคอลัมน์ที่เป็น Text)
         text_cols = ['KM_Text', 'Remark_DI_NO', 'Pipe_Class', 'HasDI', 'Has_DI']
         for col in df.columns:
             if col not in text_cols:
@@ -45,7 +44,6 @@ def load_google_sheet(url):
                 
         df = df.dropna(subset=['DI_No', 'Northing', 'Easting'])
         
-        # UTM Zone 48N -> WGS84
         transformer = Transformer.from_crs("epsg:32648", "epsg:4326", always_xy=True)
         df['Lat'], df['Lng'] = np.nan, np.nan
         
@@ -74,9 +72,7 @@ def convert_df_to_csv(df):
         writer.writerow(row.values)
     return output.getvalue().encode('utf-8-sig')
 
-# ฟังก์ชันจัดรูปแบบตารางที่ปลอดภัย
 def safe_format(df, format_str="{:.3f}", na_rep="-"):
-    """จัดรูปแบบ DataFrame โดยเช็กชนิดข้อมูลก่อน"""
     styled_df = df.copy()
     for col in styled_df.columns:
         styled_df[col] = styled_df[col].apply(
@@ -152,7 +148,7 @@ if df_all is not None:
     ])
 
     # --------------------------------------------------
-    # TAB 1: Map & Inspector (ปรับปรุงชื่อคอลัมน์)
+    # TAB 1: Map & Inspector
     # --------------------------------------------------
     with tab1:
         col_map, col_info = st.columns([2, 1])
@@ -262,7 +258,17 @@ if df_all is not None:
                 fig.add_trace(go.Scatter(x=df['KM_m'], y=df['ManholeLevelBottom'], mode='markers', name='Manhole Bottom', marker=dict(color='#b71c1c', size=6)))
 
             fig.add_trace(go.Scatter(x=[selected_row['KM_m']], y=[selected_row['RailLevel']], mode='markers', name='Selected Node', marker=dict(color='red', size=16, symbol='star', line=dict(color='black', width=1.5))))
-            fig.update_layout(title="Profile (Elevation vs Chainage)", xaxis_title="Chainage (m)", yaxis_title="Elevation (m.msl)", hovermode="x unified")
+            
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
+            fig.update_layout(
+                title="Profile (Elevation vs Chainage)", 
+                xaxis_title="Chainage (m)", 
+                yaxis_title="Elevation (m.msl)", 
+                hovermode="x unified",
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(color='black')
+            )
             st.plotly_chart(fig, use_container_width=True)
             
             html_bytes = fig.to_html(include_plotlyjs='cdn').encode('utf-8')
@@ -298,27 +304,32 @@ if df_all is not None:
             fig_xsec.add_hline(y=rl, line_color="black", annotation_text=f"Rail: {rl:.3f}")
 
             # วาด Dimension Lines
-            fig_xsec.add_annotation(x=0, y=base - 0.1, text=f"Width = {B:.3f} m", showarrow=False, bgcolor="white")
+            fig_xsec.add_annotation(x=0, y=base - 0.1, text=f"Width = {B:.3f} m", showarrow=False, bgcolor="white", font=dict(color="black"))
             fig_xsec.add_shape(type="line", x0=-B/2, y0=base - 0.08, x1=B/2, y1=base - 0.08, line=dict(color="black", width=1, dash="dash"))
             fig_xsec.add_shape(type="line", x0=-B/2, y0=base - 0.10, x1=-B/2, y1=base - 0.06, line=dict(color="black", width=1))
             fig_xsec.add_shape(type="line", x0=B/2, y0=base - 0.10, x1=B/2, y1=base - 0.06, line=dict(color="black", width=1))
 
             if wl > base:
-                fig_xsec.add_annotation(x=B/2 + 0.05, y=(base+wl)/2, text=f"y = {wl-base:.3f} m", showarrow=False, bgcolor="white")
+                fig_xsec.add_annotation(x=B/2 + 0.05, y=(base+wl)/2, text=f"y = {wl-base:.3f} m", showarrow=False, bgcolor="white", font=dict(color="black"))
                 fig_xsec.add_shape(type="line", x0=B/2 + 0.02, y0=base, x1=B/2 + 0.02, y1=wl, line=dict(color="black", width=1, dash="dash"))
             
             if fb > 0:
-                fig_xsec.add_annotation(x=B/2 + 0.05, y=(wl+top)/2, text=f"FB = {fb:.3f} m", showarrow=False, bgcolor="white")
+                fig_xsec.add_annotation(x=B/2 + 0.05, y=(wl+top)/2, text=f"FB = {fb:.3f} m", showarrow=False, bgcolor="white", font=dict(color="black"))
                 fig_xsec.add_shape(type="line", x0=B/2 + 0.02, y0=wl, x1=B/2 + 0.02, y1=top, line=dict(color="black", width=1, dash="dash"))
 
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
             fig_xsec.update_layout(
                 title=f"Cross Section U-Drain @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})",
                 xaxis_title="Width (m)", yaxis_title="Elevation (m.msl)",
-                xaxis_range=[-B*2, B*2], yaxis_range=[base - 0.5, max(top, rl) + 1], showlegend=False, height=500
+                xaxis_range=[-B*2, B*2], yaxis_range=[base - 0.5, max(top, rl) + 1], 
+                showlegend=False, height=500,
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(color='black')
             )
             st.plotly_chart(fig_xsec, use_container_width=True)
 
-            # แสดงค่า V, Q ใต้กราฟ
+            # แสดงค่า V, Q ใต้กราฟ (ใช้ metric-box ที่บังคับสีขาวดำ)
             st.markdown(f"""
             <div class="metric-box">
                 <b>Hydraulic Properties:</b><br>
@@ -341,7 +352,6 @@ if df_all is not None:
         if not df.empty:
             row = df[df['DI_No'] == st.session_state.selected_di].iloc[0]
             
-            # ดึงค่าตามชื่อคอลัมน์ที่กำหนด
             base_inv = row.get('DrainBase_MSL-Manhole', row.get('DrainInvertLevel', 0))
             wl_mh = row.get('WaterLevel_MSL-Manhole', row.get('WaterLevel_m', 0))
             pipe_dia = row.get('Pipe Culvert Diameter [m]', row.get('Pipe_D_m', 0.6))
@@ -372,23 +382,28 @@ if df_all is not None:
             fig_long.add_hline(y=base_inv, line_dash="dot", line_color="purple", annotation_text=f"Invert: {base_inv:.3f}")
 
             # วาด Dimension Lines
-            fig_long.add_annotation(x=lp/2, y=hd - 0.2, text=f"Lp = {lp:.3f} m", showarrow=False, bgcolor="white")
+            fig_long.add_annotation(x=lp/2, y=hd - 0.2, text=f"Lp = {lp:.3f} m", showarrow=False, bgcolor="white", font=dict(color="black"))
             fig_long.add_shape(type="line", x0=0, y0=hd - 0.15, x1=lp, y1=hd - 0.15, line=dict(color="black", width=1, dash="dash"))
             fig_long.add_shape(type="line", x0=0, y0=hd - 0.18, x1=0, y1=hd - 0.12, line=dict(color="black", width=1))
             fig_long.add_shape(type="line", x0=lp, y0=hd - 0.18, x1=lp, y1=hd - 0.12, line=dict(color="black", width=1))
             
             # ค่า HU, HD
-            fig_long.add_annotation(x=-0.2, y=hu, text=f"HU: {hu:.3f}", showarrow=False, bgcolor="white")
-            fig_long.add_annotation(x=lp+0.2, y=hd, text=f"HD: {hd:.3f}", showarrow=False, bgcolor="white")
+            fig_long.add_annotation(x=-0.2, y=hu, text=f"HU: {hu:.3f}", showarrow=False, bgcolor="white", font=dict(color="black"))
+            fig_long.add_annotation(x=lp+0.2, y=hd, text=f"HD: {hd:.3f}", showarrow=False, bgcolor="white", font=dict(color="black"))
 
+            # บังคับพื้นหลังสีขาว ตัวอักษรสีดำ สำหรับโหมด Dark
             fig_long.update_layout(
                 title=f"Longitudinal Section @ DI {st.session_state.selected_di} (KM {format_km(row['KM_m'])})",
                 xaxis_title="Distance (m)", yaxis_title="Elevation (m.msl)",
-                xaxis_range=[-1.5, lp+1.5], yaxis_range=[mh_bottom - 1, eg + 1], showlegend=True, height=500
+                xaxis_range=[-1.5, lp+1.5], yaxis_range=[mh_bottom - 1, eg + 1], 
+                showlegend=True, height=500,
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+                font=dict(color='black')
             )
             st.plotly_chart(fig_long, use_container_width=True)
 
-            # แสดงค่าต่างๆ ตามที่คุณระบุ
+            # แสดงค่าต่างๆ (ใช้ metric-box)
             st.markdown(f"""
             <div class="metric-box">
                 <b>Manhole & Culvert Properties:</b><br>
