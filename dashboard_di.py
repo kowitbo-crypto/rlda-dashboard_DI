@@ -46,7 +46,7 @@ COLUMN_RENAME_MAP = {
     # --- Results Section (ค่าคำนวณชลศาสตร์) ---
     'RailLevel_m':             'RailLevel_m',
     'Drain Top_m':             'DrainTop_m',
-    'Drain Base_m':            'DrainBase_m',
+    'Drain Base_m':            'DrainBase_m_input',   # เป็นค่าจาก Results section (computed)
     'WaterLevel_capped_m':     'WaterLevel_capped_m',
     'Depth_m':                 'Depth_m',
     'Fill_pct':                'Fill_pct',
@@ -122,6 +122,11 @@ def load_google_sheet(url):
         # Normalize column names using mapping (เลือกเฉพาะที่มีใน sheet)
         rename_dict = {k: v for k, v in COLUMN_RENAME_MAP.items() if k in df.columns}
         df = df.rename(columns=rename_dict)
+
+        # Safety net: กรณีมี duplicate column หลัง rename (เก็บเฉพาะคอลัมน์แรก)
+        dup_cols = df.columns[df.columns.duplicated(keep='first')].tolist()
+        if dup_cols:
+            df = df.loc[:, ~df.columns.duplicated(keep='first')]
 
         text_cols = ['KM_Text', 'Remark_DI_NO', 'Pipe_Class', 'HasDI', 'Has_DI',
                      'Control', 'Status', 'Notes', 'CoverStatus', 'ScourStatus']
