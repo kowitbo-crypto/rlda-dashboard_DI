@@ -844,7 +844,7 @@ if df_all is not None:
                        .agg(
                            DI_start=('DI_No', 'min'),
                            DI_end=('DI_No', 'max'),
-                           Zone=('zone', lambda x: ','.join(sorted(set(int(v) for v in x)))),
+                           Zone=('zone', lambda x: ','.join(str(int(v)) for v in sorted(set(x.dropna().astype(int))))),
                            KM_start=('KM_Text', 'first'),
                            KM_end=('KM_Text', 'last'),
                            Count=('DI_No', 'count'),
