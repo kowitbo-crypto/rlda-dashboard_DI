@@ -20,7 +20,11 @@ st.markdown("""
     .stDataFrame { background-color: white; padding: 10px; border-radius: 5px; color: black; }
     .metric-box { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 5px solid #0077cc; color: black; margin-top: 10px; }
     .zone-badge { display: inline-block; background-color: #0077cc; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+    .segment-badge { display: inline-block; background-color: #2e7d32; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+    .warn-badge { display: inline-block; background-color: #d32f2f; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+    .ok-badge { display: inline-block; background-color: #388e3c; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
     .section-header { background-color: #e8f4f8; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #0077cc; margin-top: 15px; margin-bottom: 8px; font-weight: bold; color: #0077cc; }
+    .alert-box { background-color: #fff3e0; padding: 12px 15px; border-radius: 5px; border-left: 5px solid #ff5722; color: #bf360c; margin-top: 10px; margin-bottom: 10px; font-weight: 500; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -152,6 +156,24 @@ def load_google_sheet(url):
             elif 'LevelTopUdrain' in df.columns and 'WaterLevel_capped_m' in df.columns:
                 df['FreeBoard_m'] = df['LevelTopUdrain'] - df['WaterLevel_capped_m']
 
+        # ===== สร้าง Segment_No จากคอลัมน์ No. (หลัก B ใน sheet) =====
+        # คอลัมน์ No. เป็น segment marker (มีค่าเฉพาะ row เริ่มช่วง) -> forward-fill
+        if 'No.' in df.columns:
+            df['Segment_No'] = df['No.'].ffill()
+        else:
+            df['Segment_No'] = 1.0
+        df['Segment_No'] = pd.to_numeric(df['Segment_No'], errors='coerce').fillna(1).astype(int)
+
+        # ===== สถานะ Free Board: "ต้องพิจารณา" เมื่อ FB <= 0 (น้ำเกิน Top of U-drain) =====
+        if 'FreeBoard_m' in df.columns:
+            df['FreeBoardStatus'] = np.where(
+                df['FreeBoard_m'].notna() & (df['FreeBoard_m'] <= 0),
+                'ต้องพิจารณา',
+                'ปกติ'
+            )
+        else:
+            df['FreeBoardStatus'] = '-'
+
         # ตัวแปร alias สำหรับ Lp (ใช้ Lp_m จาก Drop Inlet section เป็นหลัก)
         if 'Lp' not in df.columns and 'Lp_m' in df.columns:
             df['Lp'] = df['Lp_m']
@@ -228,7 +250,7 @@ if df_all is not None:
 
     st.sidebar.header("ตัวกรองข้อมูล (Filters)")
 
-    # ---- Zone Filter (ใหม่: แยกตาม zone ใน sheet) ----
+    # ---- Zone Filter ----
     available_zones = sorted([z for z in df_all['zone'].unique() if z > 0])
     if available_zones:
         selected_zones = st.sidebar.multiselect(
@@ -244,6 +266,31 @@ if df_all is not None:
     else:
         df_zoned = df_all.copy()
         st.sidebar.info("ไม่พบข้อมูล Zone ใน sheet")
+
+    # ---- Segment Filter (คอลัมน์ No. / หลัก B ใน sheet) ----
+    available_segments = sorted(df_zoned['Segment_No'].unique().tolist())
+    if len(available_segments) > 1:
+        with st.sidebar.expander("กรองตามช่วงคำนวณ (Segment/No.)", expanded=False):
+            select_all_segments = st.checkbox("เลือกทุก Segment", value=True)
+            if select_all_segments:
+                selected_segments = available_segments
+            else:
+                selected_segments = st.multiselect(
+                    "เลือก Segment:",
+                    options=available_segments,
+                    default=[available_segments[0]],
+                    format_func=lambda s: f"No.{s}"
+                )
+                if not selected_segments:
+                    selected_segments = [available_segments[0]]
+            df_zoned = df_zoned[df_zoned['Segment_No'].isin(selected_segments)].copy()
+            # แสดง summary ช่วง DI ของแต่ละ segment
+            seg_summary = (df_zoned.groupby('Segment_No')
+                           .agg(DI_start=('DI_No', 'min'), DI_end=('DI_No', 'max'),
+                                KM_start=('KM_Text', 'first'), count=('DI_No', 'count'))
+                           .reset_index())
+            for _, r in seg_summary.iterrows():
+                st.caption(f"No.{int(r['Segment_No'])}: DI {int(r['DI_start'])}-{int(r['DI_end'])} ({int(r['count'])} จุด, {r['KM_start']})")
 
     # ---- Filter Mode (DI / KM) ----
     filter_mode = st.sidebar.radio("เลือกโหมดการกรอง:", ["กรองด้วย DI", "กรองด้วย KM"])
@@ -279,16 +326,27 @@ if df_all is not None:
         di_min = df['DI_No'].min()
         di_max = df['DI_No'].max()
         zones_in_range = sorted(df['zone'].unique().tolist())
+        segments_in_range = sorted(df['Segment_No'].unique().tolist())
 
         zone_badges = " ".join([f"<span class='zone-badge'>Zone {z}</span>" for z in zones_in_range])
+        if len(segments_in_range) <= 5:
+            seg_badges = " ".join([f"<span class='segment-badge'>No.{s}</span>" for s in segments_in_range])
+        else:
+            seg_badges = f"<span class='segment-badge'>No.{segments_in_range[0]} - No.{segments_in_range[-1]} ({len(segments_in_range)} segments)</span>"
+
+        # นับจำนวน DI ที่เกิน Free Board
+        fb_exceeded = df[df['FreeBoardStatus'] == 'ต้องพิจารณา']
+        fb_exceeded_count = len(fb_exceeded)
 
         st.sidebar.markdown(f"""
         <div class="range-info">
             <b>ช่วงข้อมูลที่เลือก:</b><br>
             <b>Zone:</b> {zone_badges}<br>
+            <b>Segment:</b> {seg_badges}<br>
             <b>DI:</b> {di_min} ถึง {di_max}<br>
             <b>KM:</b> {format_km(km_min_val)} ถึง {format_km(km_max_val)}<br>
-            <b>จำนวน:</b> {len(df)} จุด
+            <b>จำนวน:</b> {len(df)} จุด<br>
+            <b>เกิน Free Board:</b> {fb_exceeded_count} จุด
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -341,19 +399,45 @@ if df_all is not None:
 
                 for idx, row in df.iterrows():
                     z = int(row['zone'])
+                    seg = int(row.get('Segment_No', 0))
+                    fb_exceeded = str(row.get('FreeBoardStatus', '')) == 'ต้องพิจารณา'
+                    fb_val = row.get('FreeBoard_m', np.nan)
+                    if isinstance(fb_val, (int, float, np.number)) and pd.notna(fb_val):
+                        fb_str = f"{float(fb_val):.3f} m"
+                    else:
+                        fb_str = "-"
+                    # marker สีแดง (exclamation) ถ้าเกิน Free Board, สีเขียว (info) ถ้าปกติ
+                    marker_color = 'red' if fb_exceeded else 'green'
+                    marker_icon = 'exclamation-sign' if fb_exceeded else 'info-sign'
                     popup_html = (
                         f"<div style='background-color:white; padding:5px; border-radius:5px; color:black;'>"
-                        f"<b>DI {int(row['DI_No'])}</b> <span style='color:{zone_colors.get(z,'#000')};'>(Zone {z})</span><br>"
-                        f"KM: {format_km(row['KM_m'])}</div>"
+                        f"<b>DI {int(row['DI_No'])}</b>"
+                        f" <span style='color:{zone_colors.get(z,'#000')};'>(Zone {z})</span>"
+                        f" <b>[No.{seg}]</b><br>"
+                        f"KM: {format_km(row['KM_m'])}<br>"
+                        f"Free Board: {fb_str}"
+                        + ("<br><b style='color:#d32f2f;'>ต้องพิจารณา (เกิน Free Board)</b>" if fb_exceeded else "")
+                        + "</div>"
                     )
                     folium.Marker(
                         location=[row['Lat'], row['Lng']],
-                        popup=folium.Popup(popup_html, max_width=200),
-                        tooltip=f"DI {int(row['DI_No'])} (Zone {z})",
-                        icon=folium.Icon(color='green', icon='info-sign')
+                        popup=folium.Popup(popup_html, max_width=250),
+                        tooltip=f"DI {int(row['DI_No'])} [No.{seg}] (Zone {z})" + (" - เกิน FB" if fb_exceeded else ""),
+                        icon=folium.Icon(color=marker_color, icon=marker_icon)
                     ).add_to(m)
 
                 map_data = st_folium(m, width=800, height=500, returned_objects=["last_object_clicked"])
+
+                # Legend สี marker
+                fb_exceeded_count = len(df[df['FreeBoardStatus'] == 'ต้องพิจารณา'])
+                st.markdown(
+                    f"<div class='metric-box' style='margin-top:5px;'>"
+                    f"<b>Legend:</b> "
+                    f"<span style='color:#388e3c;'>&#9679; ปกติ</span> &nbsp;|&nbsp; "
+                    f"<span style='color:#d32f2f;'>&#9679; ต้องพิจารณา (เกิน Free Board): {fb_exceeded_count} จุด</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
                 if map_data.get('last_object_clicked') is not None:
                     click_lat = map_data['last_object_clicked']['lat']
@@ -378,16 +462,35 @@ if df_all is not None:
                 st.session_state.selected_di = selected_di
                 selected_row = df[df['DI_No'] == selected_di].iloc[0]
 
-                # แสดง Zone ปัจจุบัน
+                # แสดง Zone, Segment และสถานะ Free Board ปัจจุบัน
                 current_zone = int(selected_row.get('zone', 0))
+                current_segment = int(selected_row.get('Segment_No', 0))
+                current_fb_status = str(selected_row.get('FreeBoardStatus', '-'))
+                fb_val_disp = selected_row.get('FreeBoard_m', np.nan)
+                if isinstance(fb_val_disp, (int, float, np.number)) and pd.notna(fb_val_disp):
+                    fb_val_str = f"{float(fb_val_disp):.3f} m"
+                else:
+                    fb_val_str = "-"
+
                 st.markdown(
                     f"<div class='range-info' style='margin-bottom:10px;'>"
                     f"<b>DI:</b> {selected_di} &nbsp;|&nbsp; "
                     f"<b>KM:</b> {format_km(selected_row['KM_m'])} &nbsp;|&nbsp; "
                     f"<span class='zone-badge'>Zone {current_zone}</span>"
+                    f"<span class='segment-badge'>No.{current_segment}</span>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
+
+                # Alert box สำหรับ DI ที่เกิน Free Board
+                if current_fb_status == 'ต้องพิจารณา':
+                    st.markdown(
+                        f"<div class='alert-box'>"
+                        f"<b>ต้องพิจารณา:</b> U-drain ที่ DI {selected_di} มี Water Level เกิน Top of U-drain "
+                        f"(Free Board = {fb_val_str}) - ต้องทบทวนการออกแบบ/ขนาดระบบระบายน้ำ"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
 
                 # ============================================================
                 # ZONE 1: U-Drain
@@ -400,6 +503,7 @@ if df_all is not None:
                     "Water Level [MSL]":             safe_get(selected_row, 'WaterLevel_m'),
                     "Depth [m]":                     safe_get(selected_row, 'Depth_m'),
                     "Free Board [m]":                safe_get(selected_row, 'FreeBoard_m'),
+                    "Free Board Status":             str(selected_row.get('FreeBoardStatus', '-')),
                     "Velocity [m/s]":                safe_get(selected_row, 'Velocity_ms'),
                     "Flow-Q [CMS]":                  safe_get(selected_row, 'Q_m3s'),
                     "Froude No.":                    safe_get(selected_row, 'Froude'),
@@ -535,6 +639,17 @@ if df_all is not None:
             v_val = float(row.get('Velocity_ms', 0) or 0)
             q_val = float(row.get('Q_m3s', 0) or 0)
             fr_val = float(row.get('Froude', 0) or 0)
+            fb_status = str(row.get('FreeBoardStatus', '-'))
+
+            # Alert box ถ้า DI นี้เกิน Free Board
+            if fb_status == 'ต้องพิจารณา':
+                st.markdown(
+                    f"<div class='alert-box'>"
+                    f"<b>ต้องพิจารณา:</b> Water Level เกิน Top of U-drain (Free Board = {fb:.3f} m) "
+                    f"- ต้องทบทวนการออกแบบ/ขนาดระบบระบายน้ำ"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
             st.markdown(f"""
             <div class="metric-box">
@@ -543,7 +658,9 @@ if df_all is not None:
                 - Flow-Q: {q_val:.4f} CMS<br>
                 - Froude No.: {fr_val:.3f}<br>
                 - Water Level: {wl:.3f} m.msl<br>
-                - Capped Water Level: {wl_capped:.3f} m.msl
+                - Capped Water Level: {wl_capped:.3f} m.msl<br>
+                - Free Board: {fb:.3f} m
+                &nbsp; <span class='{"warn-badge" if fb_status == "ต้องพิจารณา" else "ok-badge"}'>{fb_status}</span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -635,42 +752,138 @@ if df_all is not None:
             st.download_button(label="ดาวน์โหลด Manhole (HTML)", data=html_long, file_name=f"Manhole_Long_DI_{st.session_state.selected_di}.html", mime="text/html")
 
     # --------------------------------------------------
-    # TAB 5: Data Tables & Export (แยกหมวดหมู่)
+    # TAB 5: Data Tables & Export (แยกหมวดหมู่ + แยก Segment)
     # --------------------------------------------------
     with tab5:
         st.subheader("ตารางข้อมูลผลลัพธ์แยกหมวดหมู่")
 
-        # หมวดที่ 1: Hydraulic Results (U-Drain)
+        # ตัวเลือกการแสดงผลตาม Segment
+        segments_in_tab5 = sorted(df['Segment_No'].unique().tolist())
+        view_mode = st.radio(
+            "โหมดการแสดงผล:",
+            ["รวมทุก Segment", "แยกตาม Segment"],
+            horizontal=True
+        )
+        if view_mode == "แยกตาม Segment":
+            selected_seg_tab5 = st.selectbox(
+                "เลือก Segment (No.):",
+                options=segments_in_tab5,
+                format_func=lambda s: f"No.{s} (DI {int(df[df['Segment_No']==s]['DI_No'].min())}-{int(df[df['Segment_No']==s]['DI_No'].max())})"
+            )
+            df_tab5 = df[df['Segment_No'] == selected_seg_tab5].copy()
+            st.info(f"กำลังแสดง Segment No.{selected_seg_tab5}: "
+                    f"DI {int(df_tab5['DI_No'].min())} - {int(df_tab5['DI_No'].max())} "
+                    f"({len(df_tab5)} จุด)")
+        else:
+            df_tab5 = df.copy()
+            selected_seg_tab5 = None
+
+        # ============== หมวดพิเศษ: U-drain ที่เกิน Free Board ==============
+        fb_exceeded_df = df_tab5[df_tab5['FreeBoardStatus'] == 'ต้องพิจารณา'].copy()
+        st.markdown('<div class="section-header">U-Drain ที่เกิน Free Board (ต้องพิจารณา)</div>', unsafe_allow_html=True)
+        if len(fb_exceeded_df) > 0:
+            fb_cols = ['Segment_No', 'DI_No', 'zone', 'KM_Text', 'RailLevel', 'LevelTopUdrain',
+                       'WaterLevel_m', 'FreeBoard_m', 'FreeBoardStatus', 'Velocity_ms', 'Q_m3s', 'Froude']
+            fb_cols_show = [c for c in fb_cols if c in fb_exceeded_df.columns]
+            df_fb = fb_exceeded_df[fb_cols_show].copy()
+            if 'KM_Text' not in df_fb.columns and 'KM_m' in df_fb.columns:
+                df_fb['KM_Text'] = df_fb['KM_m'].apply(format_km)
+            st.dataframe(
+                df_fb.style.set_properties(**{'background-color': '#fff3e0', 'color': '#bf360c'}),
+                use_container_width=True
+            )
+            csv_fb = convert_df_to_csv(df_fb)
+            st.download_button(
+                label=f"ดาวน์โหลดรายการ DI เกิน Free Board ({len(fb_exceeded_df)} จุด) (CSV)",
+                data=csv_fb, file_name="RLDA_FreeBoard_Exceeded.csv", mime="text/csv"
+            )
+        else:
+            st.success("ไม่พบ U-drain ที่เกิน Free Board ในช่วงที่เลือก")
+
+        # ============== หมวดที่ 1: Hydraulic Results (U-Drain) ==============
         st.markdown('<div class="section-header">1. Hydraulic Results (U-Drain)</div>', unsafe_allow_html=True)
         hydraulic_cols = [
-            'DI_No', 'zone', 'KM_m', 'RailLevel', 'LevelTopUdrain', 'DrainInvertLevel',
-            'WaterLevel_m', 'Depth_m', 'FreeBoard_m', 'Velocity_ms', 'Q_m3s', 'Froude',
+            'Segment_No', 'DI_No', 'zone', 'KM_m', 'RailLevel', 'LevelTopUdrain', 'DrainInvertLevel',
+            'WaterLevel_m', 'Depth_m', 'FreeBoard_m', 'FreeBoardStatus', 'Velocity_ms', 'Q_m3s', 'Froude',
             'Qcap_m3s', 'Shear_Pa', 'Shields', 'BedLoad_m2s', 'Tc_min', 'To_min',
             'Td_min', 'Intensity_mmhr', 'Has_DI'
         ]
-        hydraulic_cols_show = [c for c in hydraulic_cols if c in df.columns]
-        df_hydraulic = df[hydraulic_cols_show].copy()
+        hydraulic_cols_show = [c for c in hydraulic_cols if c in df_tab5.columns]
+        df_hydraulic = df_tab5[hydraulic_cols_show].copy()
         if 'KM_m' in df_hydraulic.columns:
             df_hydraulic['KM_m'] = df_hydraulic['KM_m'].apply(format_km)
-        st.dataframe(df_hydraulic.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
 
-        # หมวดที่ 2: Drop Inlet System (Manhole + Pipe Culvert)
+        # Highlight rows ที่เกิน Free Board
+        if len(df_hydraulic) > 0:
+            styled_hydraulic = df_hydraulic.style.apply(
+                lambda row: ['background-color: #fff3e0; color: #bf360c;' if row.get('FreeBoardStatus') == 'ต้องพิจารณา'
+                             else 'background-color: white; color: black;' for _ in row],
+                axis=1
+            )
+            st.dataframe(styled_hydraulic, use_container_width=True)
+        else:
+            st.warning("ไม่พบข้อมูลในช่วงที่เลือก")
+
+        # ============== หมวดที่ 2: Drop Inlet System ==============
         st.markdown('<div class="section-header">2. Drop Inlet System (Manhole + Pipe Culvert)</div>', unsafe_allow_html=True)
         drop_inlet_cols = [
-            'DI_No', 'zone', 'KM_m', 'DrainBase_m', 'WaterLevel_m', 'Q_m3s',
+            'Segment_No', 'DI_No', 'zone', 'KM_m', 'DrainBase_m', 'WaterLevel_m', 'Q_m3s',
             'DI_Wi_m', 'DI_Li_m', 'DI_Di_m', 't_wall_m', 'Pipe_D_m',
             'Pipe_Class', 'UpstreamInvertHU', 'DownstreamInvertHD', 'Lp', 'Pipe_Slope',
             'Pipe_V_ms', 'Pipe_Qcap_m3s', 'HCR', 'Cover_m', 'CoverStatus', 'ScourStatus', 'Has_DI'
         ]
-        drop_inlet_cols_show = [c for c in drop_inlet_cols if c in df.columns]
-        df_drop_inlet = df[drop_inlet_cols_show].copy()
+        drop_inlet_cols_show = [c for c in drop_inlet_cols if c in df_tab5.columns]
+        df_drop_inlet = df_tab5[drop_inlet_cols_show].copy()
         if 'KM_m' in df_drop_inlet.columns:
             df_drop_inlet['KM_m'] = df_drop_inlet['KM_m'].apply(format_km)
         st.dataframe(df_drop_inlet.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
 
-        # Export CSV
-        csv_data = convert_df_to_csv(df)
-        st.download_button(label="ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)", data=csv_data, file_name="RLDA_Data_Export.csv", mime="text/csv")
+        # ============== ตารางสรุป Segment Summary ==============
+        st.markdown('<div class="section-header">3. สรุปแยกตาม Segment (No.)</div>', unsafe_allow_html=True)
+        seg_summary = (df.groupby('Segment_No')
+                       .agg(
+                           DI_start=('DI_No', 'min'),
+                           DI_end=('DI_No', 'max'),
+                           Zone=('zone', lambda x: ','.join(sorted(set(int(v) for v in x)))),
+                           KM_start=('KM_Text', 'first'),
+                           KM_end=('KM_Text', 'last'),
+                           Count=('DI_No', 'count'),
+                           FB_exceeded=('FreeBoardStatus', lambda x: (x == 'ต้องพิจารณา').sum()),
+                           Min_FB=('FreeBoard_m', 'min'),
+                           Max_V=('Velocity_ms', 'max'),
+                           Max_Q=('Q_m3s', 'max'),
+                       )
+                       .reset_index())
+        seg_summary['FB_exceeded'] = seg_summary['FB_exceeded'].astype(int)
+        st.dataframe(seg_summary.style.set_properties(**{'background-color': 'white', 'color': 'black'}), use_container_width=True)
+        csv_summary = convert_df_to_csv(seg_summary)
+        st.download_button(
+            label="ดาวน์โหลดสรุป Segment (CSV)",
+            data=csv_summary, file_name="RLDA_Segment_Summary.csv", mime="text/csv"
+        )
+
+        # ============== Export CSV ข้อมูลทั้งหมด ==============
+        st.markdown('<div class="section-header">4. Export ข้อมูลทั้งหมด</div>', unsafe_allow_html=True)
+        csv_data = convert_df_to_csv(df_tab5)
+        export_label = f"ดาวน์โหลดตารางข้อมูล Segment ที่เลือก (CSV)" if selected_seg_tab5 else "ดาวน์โหลดตารางข้อมูลทั้งหมด (CSV)"
+        export_name = f"RLDA_Data_Segment_{selected_seg_tab5}.csv" if selected_seg_tab5 else "RLDA_Data_Export.csv"
+        st.download_button(label=export_label, data=csv_data, file_name=export_name, mime="text/csv")
+
+        # Export แย่งตาม Segment (zip) - กรณีเลือก "รวมทุก Segment"
+        if view_mode == "รวมทุก Segment" and len(segments_in_tab5) > 1:
+            import zipfile
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for seg in segments_in_tab5:
+                    df_seg = df[df['Segment_No'] == seg].copy()
+                    csv_seg = convert_df_to_csv(df_seg)
+                    zf.writestr(f"Segment_{seg}_DI_{int(df_seg['DI_No'].min())}_{int(df_seg['DI_No'].max())}.csv", csv_seg)
+            st.download_button(
+                label=f"ดาวน์โหลด CSV แยกตาม Segment (ZIP: {len(segments_in_tab5)} ไฟล์)",
+                data=zip_buffer.getvalue(),
+                file_name="RLDA_Data_By_Segment.zip",
+                mime="application/zip"
+            )
 
 else:
     st.error("เกิดข้อผิดพลาดในการโหลดข้อมูล")
